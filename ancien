@@ -1,0 +1,103 @@
+import tkinter as tk  # Importation du module Tkinter pour créer l'interface graphique.
+from tkinter import messagebox, simpledialog  # Importation des boîtes de dialogue et de messages.
+import base64  # Module utilisé pour l'encodage en base64.
+import json  # Module pour la manipulation de fichiers JSON.
+import os  # Module permettant de manipuler les fichiers sur le système.
+from cryptography.fernet import Fernet  # Importation de Fernet pour le chiffrement et le déchiffrement.
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC  # Importation du KDF PBKDF2HMAC pour générer une clé à partir d'un mot de passe.
+from cryptography.hazmat.primitives import hashes  # Module pour l'utilisation des fonctions de hachage.
+from cryptography.hazmat.backends import default_backend  # Définition du backend cryptographique utilisé.
+
+# Fonction pour générer une clé à partir d'un mot de passe maître et d'un sel.
+def generer_cle_depuis_mdp(mot_de_passe: str, sel: bytes) -> bytes:
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),  # Utilisation de l'algorithme SHA-256 pour le KDF.
+        length=32,  # Longueur de la clé générée (32 octets).
+        salt=sel,  # Utilisation d'un sel constant.
+        iterations=100_000,  # Nombre d'itérations pour renforcer la sécurité.
+        backend=default_backend()  # Utilisation du backend cryptographique par défaut.
+    )
+    return base64.urlsafe_b64encode(kdf.derive(mot_de_passe.encode()))  # Retourne une clé encodée en base64.
+
+# Fonction pour chiffrer une donnée avec une clé donnée.
+def chiffrer(cle, texte):
+    f = Fernet(cle)  # Création d'un objet Fernet avec la clé.
+    return f.encrypt(texte.encode())  # Chiffrement du texte et renvoi du texte chiffré.
+
+# Fonction pour déchiffrer une donnée avec une clé donnée.
+def dechiffrer(cle, texte_chiffre):
+    f = Fernet(cle)  # Création d'un objet Fernet avec la clé.
+    return f.decrypt(texte_chiffre).decode()  # Déchiffrement du texte et conversion en chaîne lisible.
+
+# Nom du fichier JSON où seront stockées les données chiffrées.
+fichier_donnees = "donnees.json"
+
+# Fonction pour charger les données depuis le fichier JSON.
+def charger_donnees():
+    if os.path.exists(fichier_donnees):  # Vérifie si le fichier existe.
+        with open(fichier_donnees, "r") as f:  # Ouvre le fichier en mode lecture.
+            return json.load(f)  # Charge et retourne les données JSON.
+    return {}  # Retourne un dictionnaire vide si le fichier n'existe pas.
+
+# Fonction pour sauvegarder les données chiffrées dans le fichier JSON.
+def sauvegarder_donnees(data):
+    with open(fichier_donnees, "w") as f:  # Ouvre le fichier en mode écriture.
+        json.dump(data, f)  # Sauvegarde les données JSON.
+
+# Création de l'interface graphique Tkinter.
+app = tk.Tk()
+app.title("Coffre-fort de mots de passe")  # Titre de la fenêtre.
+app.geometry("400x300")  # Dimensions de la fenêtre.
+
+# Demande du mot de passe maître à l'utilisateur via une boîte de dialogue.
+mot_de_passe_maitre = simpledialog.askstring("Mot de passe", "Entrez le mot de passe maître :", show='*')
+
+# Vérification que l'utilisateur a bien fourni un mot de passe maître.
+if not mot_de_passe_maitre:
+    messagebox.showerror("Erreur", "Aucun mot de passe fourni. Fermeture.")  # Affichage d'un message d'erreur.
+    app.destroy()  # Fermeture de l'application.
+    exit()  # Quitte le programme.
+
+# Définition d'un sel constant pour générer toujours la même clé.
+sel = b'mon_sel_unique_et_constant'
+cle = generer_cle_depuis_mdp(mot_de_passe_maitre, sel)  # Génération de la clé à partir du mot de passe.
+
+# Fonction pour ajouter un mot de passe.
+def ajouter_mot_de_passe():
+    site = simpledialog.askstring("Ajouter un site", "Nom du site :")
+    identifiant = simpledialog.askstring("Ajouter un identifiant", "Identifiant :")
+    mot_de_passe = simpledialog.askstring("Ajouter un mot de passe", "Mot de passe :")
+
+    if site and identifiant and mot_de_passe:  # Vérification que tous les champs sont remplis.
+        data = charger_donnees()  # Chargement des données existantes.
+        donnees = f"{identifiant}:{mot_de_passe}"  # Format des données à enregistrer.
+        donnees_chiffrees = chiffrer(cle, donnees)  # Chiffrement des données.
+        data[site] = donnees_chiffrees.decode()  # Enregistrement des données chiffrées.
+        sauvegarder_donnees(data)  # Sauvegarde dans le fichier JSON.
+        messagebox.showinfo("Succès", f"Mot de passe enregistré pour {site}.")
+    else:
+        messagebox.showerror("Erreur", "Champs incomplets.")
+
+# Fonction pour afficher un mot de passe déchiffré.
+def afficher_mot_de_passe():
+    site = simpledialog.askstring("Afficher", "Nom du site à afficher :")
+    data = charger_donnees()
+
+    if site in data:
+        donnees_chiffrees = data[site].encode()
+        try:
+            donnees_claires = dechiffrer(cle, donnees_chiffrees)
+            identifiant, mot_de_passe = donnees_claires.split(":")
+            messagebox.showinfo("Résultat", f"Identifiant : {identifiant}\nMot de passe : {mot_de_passe}")
+        except:
+            messagebox.showerror("Erreur", "Impossible de déchiffrer les données (mot de passe maître incorrect ?)")
+    else:
+        messagebox.showerror("Erreur", "Aucune donnée trouvée pour ce site.")
+
+# Boutons de l'interface.
+tk.Button(app, text="Ajouter un mot de passe", command=ajouter_mot_de_passe).pack(pady=10)
+tk.Button(app, text="Afficher un mot de passe", command=afficher_mot_de_passe).pack(pady=10)
+tk.Button(app, text="Quitter", command=app.destroy).pack(pady=10)
+
+# Lancement de la boucle principale de l'application.
+app.mainloop()
