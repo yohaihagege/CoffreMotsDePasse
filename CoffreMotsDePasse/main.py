@@ -1,16 +1,13 @@
 import tkinter as tk
 from tkinter import messagebox, simpledialog
-from tkinter import ttk  # Ajout du module ttk pour améliorer l'apparence
-
-import base64
-import json
-import os
+from tkinter import ttk
+import base64, json, os
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.backends import default_backend
 
-# Fonction pour générer une clé de chiffrement
+# ---------- Sécurité ----------
 def generer_cle_depuis_mdp(mot_de_passe: str, sel: bytes) -> bytes:
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
@@ -21,19 +18,12 @@ def generer_cle_depuis_mdp(mot_de_passe: str, sel: bytes) -> bytes:
     )
     return base64.urlsafe_b64encode(kdf.derive(mot_de_passe.encode()))
 
-# Fonction de chiffrement et déchiffrement
-def chiffrer(cle, texte):
-    f = Fernet(cle)
-    return f.encrypt(texte.encode())
+def chiffrer(cle, texte): return Fernet(cle).encrypt(texte.encode())
+def dechiffrer(cle, texte_chiffre): return Fernet(cle).decrypt(texte_chiffre).decode()
 
-def dechiffrer(cle, texte_chiffre):
-    f = Fernet(cle)
-    return f.decrypt(texte_chiffre).decode()
-
-# Fichier de stockage des données chiffrées
+# ---------- Données ----------
 fichier_donnees = "donnees.json"
 
-# Chargement et sauvegarde des données JSON
 def charger_donnees():
     if os.path.exists(fichier_donnees):
         with open(fichier_donnees, "r") as f:
@@ -44,34 +34,37 @@ def sauvegarder_donnees(data):
     with open(fichier_donnees, "w") as f:
         json.dump(data, f)
 
-# Création de l'application Tkinter
+# ---------- Interface ----------
 app = tk.Tk()
-app.title("Coffre-fort de mots de passe 🔒")
-app.geometry("400x400")
-app.configure(bg="#2C3E50")  # Couleur de fond sombre
+app.title("🔐 Coffre-fort de mots de passe")
+app.geometry("450x500")
+app.configure(bg="#1e272e")
 
-# Ajout d'un style pour rendre l'application plus moderne
+# ---------- Style moderne ----------
 style = ttk.Style()
-style.configure("TButton", font=("Arial", 12), padding=6)
-style.configure("TLabel", font=("Arial", 12), background="#2C3E50", foreground="white")
+style.theme_use("clam")
+style.configure("TButton", font=("Segoe UI", 11), padding=10, foreground="#ffffff", background="#3742fa")
+style.map("TButton",
+    background=[("active", "#5352ed")],
+    foreground=[("disabled", "#dcdde1")]
+)
+style.configure("TLabel", font=("Segoe UI", 11), background="#1e272e", foreground="white")
 
-# Demande du mot de passe maître
+# ---------- Mot de passe maître ----------
 mot_de_passe_maitre = simpledialog.askstring("Mot de passe 🔑", "Entrez votre mot de passe maître :", show='*')
-
 if not mot_de_passe_maitre:
     messagebox.showerror("Erreur", "Aucun mot de passe fourni. Fermeture.")
     app.destroy()
     exit()
 
-# Sel constant et génération de la clé
 sel = b'mon_sel_unique_et_constant'
 cle = generer_cle_depuis_mdp(mot_de_passe_maitre, sel)
 
-# Fonction pour ajouter un mot de passe
+# ---------- Fonctions ----------
 def ajouter_mot_de_passe():
-    site = simpledialog.askstring("Ajouter un site 🌐", "Nom du site :")
-    identifiant = simpledialog.askstring("Ajouter un identifiant 👤", "Identifiant :")
-    mot_de_passe = simpledialog.askstring("Ajouter un mot de passe 🔑", "Mot de passe :")
+    site = simpledialog.askstring("Site 🌐", "Nom du site :")
+    identifiant = simpledialog.askstring("Identifiant 👤", "Identifiant :")
+    mot_de_passe = simpledialog.askstring("Mot de passe 🔑", "Mot de passe :")
 
     if site and identifiant and mot_de_passe:
         data = charger_donnees()
@@ -79,33 +72,33 @@ def ajouter_mot_de_passe():
         donnees_chiffrees = chiffrer(cle, donnees)
         data[site] = donnees_chiffrees.decode()
         sauvegarder_donnees(data)
-        messagebox.showinfo("Succès ✅", f"Mot de passe enregistré pour {site}.")
+        messagebox.showinfo("✅ Succès", f"Mot de passe enregistré pour {site}.")
     else:
-        messagebox.showerror("Erreur ❌", "Champs incomplets.")
+        messagebox.showerror("Erreur", "Champs incomplets.")
 
-# Fonction pour afficher un mot de passe
 def afficher_mot_de_passe():
-    site = simpledialog.askstring("Afficher 🔍", "Nom du site à afficher :")
+    site = simpledialog.askstring("Recherche 🔍", "Nom du site :")
     data = charger_donnees()
 
     if site in data:
-        donnees_chiffrees = data[site].encode()
         try:
-            donnees_claires = dechiffrer(cle, donnees_chiffrees)
+            donnees_claires = dechiffrer(cle, data[site].encode())
             identifiant, mot_de_passe = donnees_claires.split(":")
-            messagebox.showinfo("Résultat 🎯", f"Identifiant : {identifiant}\nMot de passe : {mot_de_passe}")
+            messagebox.showinfo("🔐 Résultat", f"Identifiant : {identifiant}\nMot de passe : {mot_de_passe}")
         except:
-            messagebox.showerror("Erreur ❌", "Impossible de déchiffrer les données.")
+            messagebox.showerror("Erreur", "Échec du déchiffrement.")
     else:
-        messagebox.showerror("Erreur ❌", "Aucune donnée trouvée.")
+        messagebox.showerror("Erreur", "Aucune donnée trouvée.")
 
-# Ajout des boutons avec ttk et un bel espacement
-frame = ttk.Frame(app, padding=20)
-frame.pack(expand=True)
+# ---------- Widgets ----------
+ttk.Label(app, text="Bienvenue dans votre coffre-fort de mots de passe", font=("Segoe UI", 13, "bold")).pack(pady=30)
 
-ttk.Button(frame, text="Ajouter un mot de passe 📝", command=ajouter_mot_de_passe).pack(pady=10)
-ttk.Button(frame, text="Afficher un mot de passe 🔍", command=afficher_mot_de_passe).pack(pady=10)
-ttk.Button(frame, text="Quitter 🚪", command=app.destroy).pack(pady=10)
+container = ttk.Frame(app, padding=30, style="Card.TFrame")
+container.pack(expand=True)
 
-# Lancement de l'application
+ttk.Button(container, text="📝 Ajouter un mot de passe", command=ajouter_mot_de_passe).pack(pady=10, fill='x')
+ttk.Button(container, text="🔍 Afficher un mot de passe", command=afficher_mot_de_passe).pack(pady=10, fill='x')
+ttk.Button(container, text="🚪 Quitter", command=app.destroy).pack(pady=20, fill='x')
+
+# ---------- Lancement ----------
 app.mainloop()
