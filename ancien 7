@@ -1,0 +1,254 @@
+import tkinter as tk
+import random
+import string
+from tkinter import messagebox, simpledialog
+from tkinter import ttk
+import base64, json, os
+from cryptography.fernet import Fernet
+from cryptography.fernet import InvalidToken
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.backends import default_backend
+
+# ---------- Sécurité ----------
+def generer_cle_depuis_mdp(mot_de_passe: str, sel: bytes) -> bytes:
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=sel,
+        iterations=100_000,
+        backend=default_backend()
+    )
+    return base64.urlsafe_b64encode(kdf.derive(mot_de_passe.encode()))
+
+def chiffrer(cle, texte): return Fernet(cle).encrypt(texte.encode())
+def dechiffrer(cle, texte_chiffre): return Fernet(cle).decrypt(texte_chiffre).decode()
+
+# ---------- Données ----------
+fichier_donnees = "donnees.json"
+fichier_mdp_secondaire = "mdp_secondaire.key"
+
+def charger_donnees():
+    if os.path.exists(fichier_donnees):
+        with open(fichier_donnees, "r") as f:
+            return json.load(f)
+    return {}
+
+def sauvegarder_donnees(data):
+    with open(fichier_donnees, "w") as f:
+        json.dump(data, f)
+
+def sauvegarder_mdp_secondaire(mdp):
+    with open(fichier_mdp_secondaire, "wb") as f:
+        f.write(chiffrer(cle, mdp))
+
+def charger_mdp_secondaire():
+    if os.path.exists(fichier_mdp_secondaire):
+        try:
+            with open(fichier_mdp_secondaire, "rb") as f:
+                donnees = f.read()
+                return dechiffrer(cle, donnees)
+        except InvalidToken:
+            messagebox.showerror("Erreur", "Impossible de déchiffrer le mot de passe secondaire.\n"
+                                           "Le mot de passe maître est incorrect ou le fichier est corrompu.")
+            return None
+        except Exception as e:
+            messagebox.showerror("Erreur", f"Une erreur inattendue est survenue :\n{str(e)}")
+            return None
+    else:
+        # Le fichier n'existe pas encore, donc pas de mot de passe secondaire enregistré
+        return None
+
+
+# ---------- Interface ----------
+app = tk.Tk()
+app.title("🔐 Coffre-fort de mots de passe")
+app.geometry("700x550")
+app.configure(bg="#1e272e")
+
+style = ttk.Style()
+style.theme_use("clam")
+style.configure("TButton", font=("Segoe UI", 11), padding=10, foreground="#ffffff", background="#3742fa")
+style.configure("TLabel", font=("Segoe UI", 11), background="#1e272e", foreground="white")
+style.configure("Treeview", background="#f5f6fa", fieldbackground="#f5f6fa", foreground="black", rowheight=25)
+style.configure("Treeview.Heading", font=("Segoe UI", 11, "bold"))
+
+# ---------- Mot de passe maître ----------
+mot_de_passe_maitre = simpledialog.askstring("Mot de passe 🔑", "Entrez votre mot de passe maître :", show='*')
+if not mot_de_passe_maitre:
+    messagebox.showerror("Erreur", "Aucun mot de passe fourni. Fermeture.")
+    app.destroy()
+    exit()
+
+sel = b'mon_sel_unique_et_constant'
+cle = generer_cle_depuis_mdp(mot_de_passe_maitre, sel)
+
+# ---------- Mot de passe secondaire ----------
+mdp_secondaire = charger_mdp_secondaire()
+if not mdp_secondaire:
+    nouveau_mdp = simpledialog.askstring("Mot de passe secondaire 🔐", "Définir un mot de passe secondaire :", show='*')
+    if not nouveau_mdp:
+        messagebox.showerror("Erreur", "Mot de passe secondaire requis. Fermeture.")
+        app.destroy()
+        exit()
+    sauvegarder_mdp_secondaire(nouveau_mdp)
+    mdp_secondaire = nouveau_mdp
+
+devoile_mdp = False
+
+# ---------- Fonctions ----------
+def ajouter_mot_de_passe():
+    fenetre = tk.Toplevel(app)
+    fenetre.title("Ajouter un mot de passe")
+    fenetre.geometry("400x300")
+    fenetre.grab_set()
+    fenetre.configure(bg="#1e272e")
+
+    def style_label(widget, text):
+        tk.Label(widget, text=text, font=("Segoe UI", 11), bg="#1e272e", fg="white").pack(pady=5)
+
+    style_label(fenetre, "Site :")
+    entree_site = ttk.Entry(fenetre, width=40)
+    entree_site.pack()
+
+    style_label(fenetre, "Identifiant :")
+    entree_identifiant = ttk.Entry(fenetre, width=40)
+    entree_identifiant.pack()
+
+    def generer_dans_champ():
+        longueur = 16
+        caracteres = string.ascii_letters + string.digits + string.punctuation
+        while True:
+            mdp = ''.join(random.choice(caracteres) for _ in range(longueur))
+            if (
+                any(c.isdigit() for c in mdp)
+                and any(c in string.punctuation for c in mdp)
+                and len(mdp) >= 12
+            ):
+                break
+        champ_mdp.delete(0, tk.END)
+        champ_mdp.insert(0, mdp)
+        app.clipboard_clear()
+        app.clipboard_append(mdp)
+        app.update()
+        messagebox.showinfo("Mot de passe généré", f"Mot de passe copié dans le presse-papiers.")
+
+    ttk.Button(fenetre, text="🔐 Générer un mot de passe", command=generer_dans_champ).pack(pady=5)
+
+    style_label(fenetre, "Mot de passe :")
+    champ_mdp = ttk.Entry(fenetre, width=40, show='*')
+    champ_mdp.pack()
+
+    def valider():
+        site = entree_site.get().strip()
+        identifiant = entree_identifiant.get().strip()
+        mdp = champ_mdp.get().strip()
+
+        if not site or not identifiant or not mdp:
+            messagebox.showerror("Erreur", "Tous les champs sont obligatoires.")
+            return
+
+        if len(mdp) < 12 or not any(c.isdigit() for c in mdp) or not any(c in string.punctuation for c in mdp):
+            messagebox.showerror("Erreur", "Le mot de passe doit contenir au moins 12 caractères,\n1 chiffre et 1 caractère spécial.")
+            return
+
+        data = charger_donnees()
+        donnees_chiffrees = chiffrer(cle, f"{identifiant}:{mdp}")
+        data[site] = donnees_chiffrees.decode()
+        sauvegarder_donnees(data)
+        rafraichir_tableau()
+        recherche_var.set("")
+        fenetre.destroy()
+
+    ttk.Button(fenetre, text="✅ Enregistrer", command=valider).pack(pady=15)
+
+def modifier_mot_de_passe():
+    item = tableau.selection()
+    if item:
+        site = tableau.item(item)['values'][0]
+        identifiant = simpledialog.askstring("Modifier", "Nouvel identifiant :", initialvalue=tableau.item(item)['values'][1])
+        mdp = simpledialog.askstring("Modifier", "Nouveau mot de passe :", initialvalue=tableau.item(item)['values'][2])
+        if identifiant and mdp:
+            data = charger_donnees()
+            data[site] = chiffrer(cle, f"{identifiant}:{mdp}").decode()
+            sauvegarder_donnees(data)
+            rafraichir_tableau()
+    else:
+        messagebox.showerror("Erreur", "Sélectionnez un site à modifier.")
+
+def supprimer_mot_de_passe():
+    item = tableau.selection()
+    if item:
+        site = tableau.item(item)['values'][0]
+        confirmation = messagebox.askyesno("Supprimer", f"Supprimer les données pour {site} ?")
+        if confirmation:
+            data = charger_donnees()
+            del data[site]
+            sauvegarder_donnees(data)
+            rafraichir_tableau()
+    else:
+        messagebox.showerror("Erreur", "Sélectionnez un site à supprimer.")
+
+def rafraichir_tableau():
+    for row in tableau.get_children():
+        tableau.delete(row)
+    data = charger_donnees()
+    for site, donnees_chiffrees in data.items():
+        try:
+            identifiant, mot_de_passe = dechiffrer(cle, donnees_chiffrees.encode()).split(":")
+            affichage_mdp = mot_de_passe if devoile_mdp else "********"
+            tableau.insert("", "end", values=(site, identifiant, affichage_mdp))
+        except:
+            continue
+
+def afficher_apres_deverrouillage(event):
+    global devoile_mdp
+    if devoile_mdp:
+        return
+    tentative = simpledialog.askstring("🔒 Sécurité", "Entrez le mot de passe secondaire :", show='*')
+    if tentative == mdp_secondaire:
+        devoile_mdp = True
+        rafraichir_tableau()
+    else:
+        messagebox.showerror("Erreur", "Mot de passe incorrect.")
+
+def recherche_sites(event=None):
+    filtre = recherche_var.get().lower()
+    for row in tableau.get_children():
+        tableau.delete(row)
+    data = charger_donnees()
+    for site, donnees_chiffrees in data.items():
+        try:
+            identifiant, mot_de_passe = dechiffrer(cle, donnees_chiffrees.encode()).split(":")
+            if filtre in site.lower():
+                affichage_mdp = mot_de_passe if devoile_mdp else "********"
+                tableau.insert("", "end", values=(site, identifiant, affichage_mdp))
+        except:
+            continue
+
+# ---------- Widgets ----------
+ttk.Label(app, text="Coffre-fort de mots de passe", font=("Segoe UI", 13, "bold")).pack(pady=10)
+
+recherche_var = tk.StringVar()
+champ_recherche = ttk.Entry(app, textvariable=recherche_var)
+champ_recherche.pack(pady=5)
+champ_recherche.bind("<KeyRelease>", recherche_sites)
+
+btns = ttk.Frame(app)
+btns.pack(pady=10)
+
+ttk.Button(btns, text="📝 Ajouter", command=ajouter_mot_de_passe).grid(row=0, column=0, padx=5)
+ttk.Button(btns, text="✏️ Modifier", command=modifier_mot_de_passe).grid(row=0, column=1, padx=5)
+ttk.Button(btns, text="🗑️ Supprimer", command=supprimer_mot_de_passe).grid(row=0, column=2, padx=5)
+ttk.Button(btns, text="🚪 Quitter", command=app.destroy).grid(row=0, column=3, padx=5)
+
+colonnes = ("Site", "Identifiant", "Mot de passe")
+tableau = ttk.Treeview(app, columns=colonnes, show="headings")
+for col in colonnes:
+    tableau.heading(col, text=col)
+    tableau.column(col, anchor=tk.CENTER, width=180)
+tableau.pack(padx=20, pady=10, fill="both", expand=True)
+tableau.bind("<Double-1>", afficher_apres_deverrouillage)
+
+rafraichir_tableau()
+app.mainloop()
