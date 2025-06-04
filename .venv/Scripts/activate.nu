@@ -32,7 +32,7 @@ export-env {
       }
     }
 
-    let virtual_env = r#'C:\Users\PC\Desktop\CoffreMotsDePasse\.venv'#
+    let virtual_env = r#'C:\Users\Yohai\Desktop\CoffreMotsDePasse\.venv'#
     let bin = r#'Scripts'#
 
     let is_windows = ($nu.os-info.family) == 'windows'

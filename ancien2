@@ -1,0 +1,132 @@
+import tkinter as tk
+from tkinter import messagebox, simpledialog
+from tkinter import ttk
+import base64, json, os
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.backends import default_backend
+
+# ---------- Sécurité ----------
+def generer_cle_depuis_mdp(mot_de_passe: str, sel: bytes) -> bytes:
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=sel,
+        iterations=100_000,
+        backend=default_backend()
+    )
+    return base64.urlsafe_b64encode(kdf.derive(mot_de_passe.encode()))
+
+def chiffrer(cle, texte): return Fernet(cle).encrypt(texte.encode())
+def dechiffrer(cle, texte_chiffre): return Fernet(cle).decrypt(texte_chiffre).decode()
+
+# ---------- Données ----------
+fichier_donnees = "donnees.json"
+
+def charger_donnees():
+    if os.path.exists(fichier_donnees):
+        with open(fichier_donnees, "r") as f:
+            return json.load(f)
+    return {}
+
+def sauvegarder_donnees(data):
+    with open(fichier_donnees, "w") as f:
+        json.dump(data, f)
+
+# ---------- Interface ----------
+app = tk.Tk()
+app.title("🔐 Coffre-fort de mots de passe")
+app.geometry("650x500")
+app.configure(bg="#1e272e")
+
+style = ttk.Style()
+style.theme_use("clam")
+style.configure("TButton", font=("Segoe UI", 11), padding=10, foreground="#ffffff", background="#3742fa")
+style.configure("TLabel", font=("Segoe UI", 11), background="#1e272e", foreground="white")
+style.configure("Treeview", background="#f5f6fa", fieldbackground="#f5f6fa", foreground="black", rowheight=25)
+style.configure("Treeview.Heading", font=("Segoe UI", 11, "bold"))
+
+# ---------- Mot de passe maître ----------
+mot_de_passe_maitre = simpledialog.askstring("Mot de passe 🔑", "Entrez votre mot de passe maître :", show='*')
+if not mot_de_passe_maitre:
+    messagebox.showerror("Erreur", "Aucun mot de passe fourni. Fermeture.")
+    app.destroy()
+    exit()
+
+sel = b'mon_sel_unique_et_constant'
+cle = generer_cle_depuis_mdp(mot_de_passe_maitre, sel)
+
+# ---------- Fonctions ----------
+def ajouter_mot_de_passe():
+    site = simpledialog.askstring("Site 🌐", "Nom du site :")
+    identifiant = simpledialog.askstring("Identifiant 👤", "Identifiant :")
+    mot_de_passe = simpledialog.askstring("Mot de passe 🔑", "Mot de passe :")
+    if site and identifiant and mot_de_passe:
+        data = charger_donnees()
+        donnees_chiffrees = chiffrer(cle, f"{identifiant}:{mot_de_passe}")
+        data[site] = donnees_chiffrees.decode()
+        sauvegarder_donnees(data)
+        messagebox.showinfo("✅ Succès", f"Mot de passe enregistré pour {site}.")
+        rafraichir_tableau()
+    else:
+        messagebox.showerror("Erreur", "Champs incomplets.")
+
+def modifier_mot_de_passe():
+    item = tableau.selection()
+    if item:
+        site = tableau.item(item)['values'][0]
+        identifiant = simpledialog.askstring("Modifier", "Nouvel identifiant :", initialvalue=tableau.item(item)['values'][1])
+        mdp = simpledialog.askstring("Modifier", "Nouveau mot de passe :", initialvalue=tableau.item(item)['values'][2])
+        if identifiant and mdp:
+            data = charger_donnees()
+            data[site] = chiffrer(cle, f"{identifiant}:{mdp}").decode()
+            sauvegarder_donnees(data)
+            rafraichir_tableau()
+    else:
+        messagebox.showerror("Erreur", "Sélectionnez un site à modifier.")
+
+def supprimer_mot_de_passe():
+    item = tableau.selection()
+    if item:
+        site = tableau.item(item)['values'][0]
+        confirmation = messagebox.askyesno("Supprimer", f"Supprimer les données pour {site} ?")
+        if confirmation:
+            data = charger_donnees()
+            del data[site]
+            sauvegarder_donnees(data)
+            rafraichir_tableau()
+    else:
+        messagebox.showerror("Erreur", "Sélectionnez un site à supprimer.")
+
+def rafraichir_tableau():
+    for row in tableau.get_children():
+        tableau.delete(row)
+    data = charger_donnees()
+    for site, donnees_chiffrees in data.items():
+        try:
+            identifiant, mot_de_passe = dechiffrer(cle, donnees_chiffrees.encode()).split(":")
+            tableau.insert("", "end", values=(site, identifiant, mot_de_passe))
+        except:
+            continue
+
+# ---------- Widgets ----------
+ttk.Label(app, text="Coffre-fort de mots de passe", font=("Segoe UI", 13, "bold")).pack(pady=15)
+
+btns = ttk.Frame(app)
+btns.pack(pady=10)
+
+ttk.Button(btns, text="📝 Ajouter", command=ajouter_mot_de_passe).grid(row=0, column=0, padx=5)
+ttk.Button(btns, text="✏️ Modifier", command=modifier_mot_de_passe).grid(row=0, column=1, padx=5)
+ttk.Button(btns, text="🗑️ Supprimer", command=supprimer_mot_de_passe).grid(row=0, column=2, padx=5)
+ttk.Button(btns, text="🚪 Quitter", command=app.destroy).grid(row=0, column=3, padx=5)
+
+colonnes = ("Site", "Identifiant", "Mot de passe")
+tableau = ttk.Treeview(app, columns=colonnes, show="headings")
+for col in colonnes:
+    tableau.heading(col, text=col)
+    tableau.column(col, anchor=tk.CENTER, width=180)
+tableau.pack(padx=20, pady=10, fill="both", expand=True)
+
+rafraichir_tableau()
+app.mainloop()

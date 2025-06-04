@@ -1,11 +1,8 @@
 import tkinter as tk
-import random
-import string
 from tkinter import messagebox, simpledialog
 from tkinter import ttk
 import base64, json, os
 from cryptography.fernet import Fernet
-from cryptography.fernet import InvalidToken
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.backends import default_backend
@@ -44,21 +41,9 @@ def sauvegarder_mdp_secondaire(mdp):
 
 def charger_mdp_secondaire():
     if os.path.exists(fichier_mdp_secondaire):
-        try:
-            with open(fichier_mdp_secondaire, "rb") as f:
-                donnees = f.read()
-                return dechiffrer(cle, donnees)
-        except InvalidToken:
-            messagebox.showerror("Erreur", "Impossible de déchiffrer le mot de passe secondaire.\n"
-                                           "Le mot de passe maître est incorrect ou le fichier est corrompu.")
-            return None
-        except Exception as e:
-            messagebox.showerror("Erreur", f"Une erreur inattendue est survenue :\n{str(e)}")
-            return None
-    else:
-        # Le fichier n'existe pas encore, donc pas de mot de passe secondaire enregistré
-        return None
-
+        with open(fichier_mdp_secondaire, "rb") as f:
+            return dechiffrer(cle, f.read())
+    return None
 
 # ---------- Interface ----------
 app = tk.Tk()
@@ -98,73 +83,18 @@ devoile_mdp = False
 
 # ---------- Fonctions ----------
 def ajouter_mot_de_passe():
-    fenetre = tk.Toplevel(app)
-    fenetre.title("Ajouter un mot de passe")
-    fenetre.geometry("400x300")
-    fenetre.configure(bg="#1e272e")
-
-    ttk.Label(fenetre, text="Site 🌐").pack(pady=5)
-    champ_site = ttk.Entry(fenetre)
-    champ_site.pack(pady=5)
-
-    ttk.Label(fenetre, text="Identifiant 👤").pack(pady=5)
-    champ_identifiant = ttk.Entry(fenetre)
-    champ_identifiant.pack(pady=5)
-
-    def maj_force_mdp(event=None):
-        mdp = champ_mdp.get()
-        force = "🔴 Faible"
-        couleur = "#e84118"  # rouge par défaut
-
-        if len(mdp) >= 12 and any(c.isdigit() for c in mdp) and any(c in string.punctuation for c in mdp):
-            force = "🟢 Fort"
-            couleur = "#44bd32"
-        elif len(mdp) >= 8:
-            force = "🟡 Moyen"
-            couleur = "#fbc531"
-
-        label_force.config(text=f"Force : {force}", foreground=couleur)
-
-    def generer_mdp():
-        caracteres = string.ascii_letters + string.digits + string.punctuation
-        mdp = ''.join(random.choice(caracteres) for _ in range(16))
-        champ_mdp.delete(0, tk.END)
-        champ_mdp.insert(0, mdp)
-        maj_force_mdp()
-
-    ttk.Label(fenetre, text="Mot de passe 🔑").pack(pady=(10, 0))
-    bouton_generer = ttk.Button(fenetre, text="🎲 Générer", command=generer_mdp)
-    bouton_generer.pack(pady=2)
-
-    champ_mdp = ttk.Entry(fenetre, show="*")
-    champ_mdp.pack(pady=5)
-    champ_mdp.bind("<KeyRelease>", maj_force_mdp)
-
-    label_force = ttk.Label(fenetre, text="Force : 🔴", foreground="#e84118")
-    label_force.pack(pady=5)
-
-    def valider():
-        site = champ_site.get()
-        identifiant = champ_identifiant.get()
-        mot_de_passe = champ_mdp.get()
-
-        if not (site and identifiant and mot_de_passe):
-            messagebox.showerror("Erreur", "Champs incomplets.")
-            return
-
-        if len(mot_de_passe) < 12 or not any(c.isdigit() for c in mot_de_passe) or not any(c in string.punctuation for c in mot_de_passe):
-            messagebox.showerror("Mot de passe faible", "Le mot de passe doit contenir au moins 12 caractères, 1 chiffre et 1 caractère spécial.")
-            return
-
+    site = simpledialog.askstring("Site 🌐", "Nom du site :")
+    identifiant = simpledialog.askstring("Identifiant 👤", "Identifiant :")
+    mot_de_passe = simpledialog.askstring("Mot de passe 🔑", "Mot de passe :")
+    if site and identifiant and mot_de_passe:
         data = charger_donnees()
         donnees_chiffrees = chiffrer(cle, f"{identifiant}:{mot_de_passe}")
         data[site] = donnees_chiffrees.decode()
         sauvegarder_donnees(data)
         rafraichir_tableau()
         recherche_var.set("")
-        fenetre.destroy()
-
-    ttk.Button(fenetre, text="✅ Enregistrer", command=valider).pack(pady=10)
+    else:
+        messagebox.showerror("Erreur", "Champs incomplets.")
 
 def modifier_mot_de_passe():
     item = tableau.selection()

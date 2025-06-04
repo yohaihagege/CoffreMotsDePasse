@@ -5,7 +5,7 @@
     "%SystemRoot%\System32\chcp.com" 65001 > nul
 )
 
-@set "VIRTUAL_ENV=C:\Users\PC\Desktop\CoffreMotsDePasse\.venv"
+@set "VIRTUAL_ENV=C:\Users\Yohai\Desktop\CoffreMotsDePasse\.venv"
 
 @set "VIRTUAL_ENV_PROMPT="
 @if NOT DEFINED VIRTUAL_ENV_PROMPT (
